@@ -1,0 +1,220 @@
+import Foundation
+import CoreImage
+
+@MainActor
+class AIPipeline {
+    static let shared = AIPipeline()
+    private let localAnalyzer = LocalAnalyzer()
+    private var capturedImage: CGImage?
+    private let settings = Settings.shared
+
+    public init() {}
+
+    func analyze() async throws -> DetectionResult {
+        let startTime = Date()
+        print("[AIPipeline] 📸 开始图像采集...")
+
+        let authorized = await CameraManager.shared.checkAuthorization()
+        guard authorized else {
+            print("[AIPipeline] ❌ 摄像头权限未授权")
+            throw AIError.notAuthorized
+        }
+
+        print("[AIPipeline] ⚙️ 当前AI超时设置: \(Int(settings.aiTimeout))秒")
+
+        guard let image = try await CameraManager.shared.captureFrame() else {
+            print("[AIPipeline] ⚠️ 图像采集失败，判定为离开状态")
+            return DetectionResult(state: .away, confidence: 1.0, source: .level0)
+        }
+        print("[AIPipeline] ✅ 图像采集成功 (\(image.width)x\(image.height))")
+
+        self.capturedImage = image
+
+        print("[AIPipeline] 🔬 执行 L0 本地分析（检测是否有人）...")
+        let l0Result = await localAnalyzer.analyze(image: image)
+        print("[AIPipeline] 📊 L0 结果: \(l0Result.hasFace ? "检测到人脸" : "未检测到人脸")")
+
+        if !l0Result.hasFace {
+            print("[AIPipeline] 👤 无人 detected，标记为离开状态")
+            return DetectionResult(state: .away, confidence: 1.0, source: .level0)
+        }
+
+        print("[AIPipeline] ↗️ 有人 detected，调用 AI 进行专注度分析...")
+        return try await performL1Analysis(image: image, startTime: startTime)
+    }
+
+    func testConnection() async throws -> String {
+        let startTime = Date()
+        print("[AIPipeline] 🔧 开始API连接测试...")
+
+        let authorized = await CameraManager.shared.checkAuthorization()
+        guard authorized else {
+            print("[AIPipeline] ❌ 摄像头权限未授权")
+            throw AIError.notAuthorized
+        }
+
+        guard let image = try await CameraManager.shared.captureFrame() else {
+            print("[AIPipeline] ⚠️ 图像采集失败")
+            throw AIError.notAuthorized
+        }
+
+        let configs = buildProviderConfigs()
+
+        for (index, config) in configs.enumerated() {
+            print("[AIPipeline] 🔗 [\(index + 1)/\(configs.count)] 测试 \(config.name)")
+            print("[AIPipeline]    URL: \(config.baseURL)")
+            print("[AIPipeline]    Model: \(config.model)")
+            print("[AIPipeline]    API Key: \(config.apiKey.isEmpty ? "(空)" : "\(config.apiKey.prefix(8))...")")
+
+            let client = AIClientFactory.createClient(
+                baseURL: config.baseURL,
+                model: config.model,
+                apiKey: config.apiKey,
+                name: config.name
+            )
+
+            let requestStart = Date()
+            do {
+                let result = try await withTimeout(seconds: 15) {
+                    try await client.analyze(image: image, prompt: nil)
+                }
+                let duration = Date().timeIntervalSince(requestStart)
+                print("[AIPipeline]    ✅ 成功 (\(String(format: "%.2f", duration))s): \(result.state.rawValue), 置信度=\(String(format: "%.2f", result.confidence))")
+                return "✅ \(config.name) 连接成功\n响应时间: \(String(format: "%.2f", duration))s\n状态: \(result.state.rawValue)\n置信度: \(String(format: "%.2f", result.confidence))"
+            } catch AIError.timeout {
+                let duration = Date().timeIntervalSince(requestStart)
+                print("[AIPipeline]    ⏰ 超时 (\(String(format: "%.2f", duration))s)")
+                throw AIError.timeout
+            } catch let error as AIError {
+                let duration = Date().timeIntervalSince(requestStart)
+                print("[AIPipeline]    ❌ 错误 (\(String(format: "%.2f", duration))s): \(error)")
+                throw error
+            } catch {
+                let duration = Date().timeIntervalSince(requestStart)
+                print("[AIPipeline]    ❌ 失败 (\(String(format: "%.2f", duration))s): \(error.localizedDescription)")
+                throw error
+            }
+        }
+
+        let totalDuration = Date().timeIntervalSince(startTime)
+        print("[AIPipeline] ⚠️ 所有API源测试失败，总耗时: \(String(format: "%.2f", totalDuration))s")
+        throw AIError.apiError(statusCode: 0, message: "所有API源均无法连接")
+    }
+
+    private func performL1Analysis(image: CGImage, startTime: Date) async throws -> DetectionResult {
+        let timeoutSeconds = settings.aiTimeout
+
+        let configs = buildProviderConfigs()
+
+        for (index, config) in configs.enumerated() {
+            print("[AIPipeline] 🤖 [\(index + 1)/\(configs.count)] 尝试调用 \(config.name) (\(Int(timeoutSeconds))秒超时)...")
+            print("[AIPipeline]    🌐 请求 URL: \(config.baseURL)/chat/completions")
+            print("[AIPipeline]    📦 模型: \(config.model)")
+
+            let requestStart = Date()
+            let client = AIClientFactory.createClient(
+                baseURL: config.baseURL,
+                model: config.model,
+                apiKey: config.apiKey,
+                name: config.name
+            )
+
+            do {
+                let l1Result = try await withTimeout(seconds: timeoutSeconds) {
+                    try await client.analyze(image: image, prompt: nil)
+                }
+                let duration = Date().timeIntervalSince(requestStart)
+                print("[AIPipeline]    ✅ \(config.name) 分析成功: 状态=\(l1Result.state.rawValue), 置信度=\(String(format: "%.2f", l1Result.confidence))")
+                print("[AIPipeline]    ⏱️ 响应时间: \(String(format: "%.2f", duration))s")
+                print("[AIPipeline]    📄 响应内容: state=\(l1Result.state.rawValue), confidence=\(l1Result.confidence), reason=\(l1Result.reason ?? "nil")")
+                return createResult(from: l1Result, source: .level1, startTime: startTime)
+            } catch AIError.timeout {
+                let duration = Date().timeIntervalSince(requestStart)
+                print("[AIPipeline]    ⏰ \(config.name) 超时 (\(String(format: "%.2f", duration))s)")
+                continue
+            } catch AIError.apiError(let status, let message) {
+                let duration = Date().timeIntervalSince(requestStart)
+                print("[AIPipeline]    ❌ \(config.name) API错误 (\(String(format: "%.2f", duration))s): HTTP \(status)")
+                print("[AIPipeline]       错误信息: \(message)")
+                continue
+            } catch {
+                let duration = Date().timeIntervalSince(requestStart)
+                print("[AIPipeline]    ❌ \(config.name) 失败 (\(String(format: "%.2f", duration))s): \(error.localizedDescription)")
+                continue
+            }
+        }
+
+        print("[AIPipeline] ⚠️ 所有AI源均失败，降级到保守策略(假设专注)")
+        return DetectionResult(state: .focused, confidence: 0.5, source: .level0)
+    }
+
+    private func buildProviderConfigs() -> [(name: String, baseURL: String, model: String, apiKey: String)] {
+        var configs: [(name: String, baseURL: String, model: String, apiKey: String)] = []
+
+        if settings.aiProvider == "ollama" {
+            if !settings.ollamaBaseURL.isEmpty && !settings.ollamaModel.isEmpty {
+                configs.append((
+                    name: "Ollama",
+                    baseURL: settings.ollamaBaseURL,
+                    model: settings.ollamaModel,
+                    apiKey: settings.ollamaApiKey.isEmpty ? "ollama" : settings.ollamaApiKey
+                ))
+            }
+        } else if settings.aiProvider == "glm" {
+            if !settings.glmBaseURL.isEmpty && !settings.glmModel.isEmpty && !settings.glmApiKey.isEmpty {
+                configs.append((
+                    name: "GLM",
+                    baseURL: settings.glmBaseURL,
+                    model: settings.glmModel,
+                    apiKey: settings.glmApiKey
+                ))
+            }
+        } else if settings.aiProvider == "qwen" {
+            if !settings.qwenBaseURL.isEmpty && !settings.qwenModel.isEmpty && !settings.qwenApiKey.isEmpty {
+                configs.append((
+                    name: "Qwen",
+                    baseURL: settings.qwenBaseURL,
+                    model: settings.qwenModel,
+                    apiKey: settings.qwenApiKey
+                ))
+            }
+        }
+
+        return configs
+    }
+
+    private func createResult(from aiResponse: AIAnalysisResponse, source: DetectionResult.AISource, startTime: Date) -> DetectionResult {
+        let duration = Date().timeIntervalSince(startTime)
+        print("[AIPipeline] 📦 创建检测结果，总耗时: \(String(format: "%.2f", duration))s")
+        return DetectionResult(
+            state: aiResponse.state,
+            confidence: aiResponse.confidence,
+            source: source
+        )
+    }
+}
+
+func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws -> T) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask {
+            try await operation()
+        }
+
+        group.addTask {
+            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            throw AIError.timeout
+        }
+
+        let result = try await group.next()!
+        group.cancelAll()
+        return result
+    }
+}
+
+enum AIError: Error {
+    case timeout
+    case invalidResponse
+    case apiError(statusCode: Int, message: String)
+    case invalidResponseFormat
+    case notAuthorized
+}

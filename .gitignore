@@ -1,0 +1,47 @@
+# Xcode
+#
+# gitignore contributors: remember to update Global/Xcode.gitignore
+#
+# Mac OS
+.DS_Store
+.AppleDouble
+.SVS
+
+# Xcode
+xcuserdata
+*.xcuserstate
+xcschememanifest/
+*.moved-aside
+*.pbxuser
+
+# CocoaPods
+Pods/
+Podfile.lock
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Carthage
+Carthage/Build/
+Carthage/Checkout/
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+
+# Code Injection
+iOSInjectionProject/
+
+# OS generated files
+.Spotlight-V100
+.Trashes
+
+# Logs
+*.log
+focusguard.log
+
+# Misc
+.vscode/
+.idea/
