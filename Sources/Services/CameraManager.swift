@@ -10,6 +10,8 @@ class CameraManager: NSObject {
     private var videoOutput: AVCaptureVideoDataOutput?
     private var completionHandler: ((CGImage?) -> Void)?
     private let processingQueue = DispatchQueue(label: "com.focusguard.camera", qos: .userInitiated)
+    // 帧跳过计数器，在 processingQueue 上访问
+    nonisolated(unsafe) private var framesToSkip: Int = 0
 
     private override init() {
         super.init()
@@ -46,15 +48,11 @@ class CameraManager: NSObject {
                 output.videoSettings = [
                     kCVPixelBufferPixelFormatTypeKey as String: pixelFormat
                 ]
-                print("[CameraManager] ✅ 已设置像素格式: BGRA")
-            } else {
-                print("[CameraManager] ⚠️ BGRA 不支持，使用默认格式")
             }
 
             if captureSession.canAddOutput(output) {
                 captureSession.addOutput(output)
                 self.videoOutput = output
-                print("[CameraManager] ✅ 视频输出已添加")
             } else {
                 print("[CameraManager] ❌ 无法添加视频输出")
                 captureSession.commitConfiguration()
@@ -67,7 +65,7 @@ class CameraManager: NSObject {
         }
 
         captureSession.commitConfiguration()
-        print("[CameraManager] ✅ 摄像头会话配置完成")
+        print("[CameraManager] ✅ Camera session configured")
     }
 
     func captureFrame() async throws -> CGImage? {
@@ -78,8 +76,10 @@ class CameraManager: NSObject {
 
         print("[CameraManager] 📸 开始捕获帧...")
 
+        // 跳过前 10 帧让摄像头传感器预热（约 0.3 秒@30fps）
+        framesToSkip = 10
+
         if !captureSession.isRunning {
-            print("[CameraManager] ▶️ 启动摄像头会话")
             captureSession.startRunning()
         }
 
@@ -88,7 +88,7 @@ class CameraManager: NSObject {
                 continuation.resume(returning: image)
             }
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
                 if self.completionHandler != nil {
                     print("[CameraManager] ⚠️ 捕获超时，停止会话")
                     self.captureSession.stopRunning()
@@ -114,15 +114,8 @@ class CameraManager: NSObject {
         case .authorized:
             return true
         case .notDetermined:
-            print("[CameraManager] 🔄 请求摄像头权限...")
-            let granted = await AVCaptureDevice.requestAccess(for: .video)
-            print("[CameraManager] \(granted ? "✅" : "❌") 权限请求结果: \(granted)")
-            return granted
-        case .denied:
-            print("[CameraManager] ❌ 摄像头权限被拒绝")
-            return false
-        case .restricted:
-            print("[CameraManager] ❌ 摄像头权限受限")
+            return await AVCaptureDevice.requestAccess(for: .video)
+        case .denied, .restricted:
             return false
         @unknown default:
             return false
@@ -136,6 +129,12 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
         didOutput sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
     ) {
+        // 在 processingQueue 上同步检查帧跳过计数（等摄像头传感器曝光调整）
+        if framesToSkip > 0 {
+            framesToSkip -= 1
+            return
+        }
+
         guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
             Task { @MainActor in
                 print("[CameraManager] ❌ 无法获取图像缓冲区")
@@ -149,8 +148,7 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
         let height = CVPixelBufferGetHeight(imageBuffer)
         let pixelFormat = CVPixelBufferGetPixelFormatType(imageBuffer)
 
-        print("[CameraManager] 📊 缓冲区: \(width)x\(height), 格式: \(String(format: "0x%08X", pixelFormat))")
-
+        // 在同步上下文中完成图像转换，确保 pixel buffer 数据有效
         var cgImage: CGImage?
 
         if pixelFormat == kCVPixelFormatType_32BGRA {
@@ -204,7 +202,7 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
         }
 
         Task { @MainActor in
-            print("[CameraManager] ✅ 帧捕获成功 (\(width)x\(height))")
+            print("[CameraManager] ✅ Frame captured: \(width)x\(height)")
             self.captureSession.stopRunning()
             self.completionHandler?(finalImage)
             self.completionHandler = nil
@@ -215,9 +213,7 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
         _ output: AVCaptureOutput,
         didDrop sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
-    ) {
-        print("[CameraManager] ⚠️ 帧被丢弃")
-    }
+    ) {}
 }
 
 enum CameraError: Error {

@@ -1,6 +1,5 @@
 import Foundation
 import Vision
-import CoreImage
 
 struct LocalAnalysisResult {
     let hasFace: Bool
@@ -8,46 +7,33 @@ struct LocalAnalysisResult {
 
 @MainActor
 class LocalAnalyzer {
-    private let faceDetectionRequest: VNDetectFaceRectanglesRequest
-
-    init() {
-        self.faceDetectionRequest = VNDetectFaceRectanglesRequest()
-        self.faceDetectionRequest.revision = VNDetectFaceRectanglesRequestRevision3
-        print("[LocalAnalyzer] ✅ Vision 人脸检测初始化完成")
-    }
 
     func analyze(image: CGImage) async -> LocalAnalysisResult {
-        print("[LocalAnalyzer] 📸 开始人脸检测... (图像: \(image.width)x\(image.height))")
+        // 将 Vision 处理移到后台线程，内置摄像头为镜像翻转图像
+        let result = await Task.detached { () -> LocalAnalysisResult in
+            // 前置摄像头帧通常是水平镜像的，优先用 upMirrored，失败再 fallback 到 up
+            let orientations: [CGImagePropertyOrientation] = [.upMirrored, .up]
 
-        let handler = VNImageRequestHandler(cgImage: image, options: [:])
+            for orientation in orientations {
+                let request = VNDetectFaceRectanglesRequest()
+                let handler = VNImageRequestHandler(cgImage: image, orientation: orientation, options: [:])
 
-        do {
-            try handler.perform([faceDetectionRequest])
-            print("[LocalAnalyzer] ✅ Vision 请求执行完成")
-
-            guard let results = faceDetectionRequest.results as? [VNFaceObservation] else {
-                print("[LocalAnalyzer] ⚠️ 结果类型转换失败")
-                return LocalAnalysisResult(hasFace: false)
+                do {
+                    try handler.perform([request])
+                    let results = request.results ?? []
+                    if !results.isEmpty {
+                        print("[LocalAnalyzer] ✅ Detected \(results.count) face(s) (orientation: \(orientation.rawValue))")
+                        return LocalAnalysisResult(hasFace: true)
+                    }
+                } catch {
+                    print("[LocalAnalyzer] ❌ Vision error: \(error.localizedDescription)")
+                }
             }
 
-            print("[LocalAnalyzer] 📊 检测到 \(results.count) 个人脸")
-
-            if results.isEmpty {
-                print("[LocalAnalyzer] 👤 未检测到人脸")
-                return LocalAnalysisResult(hasFace: false)
-            }
-
-            for (index, observation) in results.enumerated() {
-                let confidence = Double(observation.confidence)
-                print("[LocalAnalyzer]   人脸 #\(index + 1): 置信度=\(String(format: "%.2f", confidence)), boundingBox=\(observation.boundingBox)")
-            }
-
-            print("[LocalAnalyzer] ✅ 检测到人脸")
-            return LocalAnalysisResult(hasFace: true)
-
-        } catch {
-            print("[LocalAnalyzer] ❌ Vision 错误: \(error.localizedDescription)")
+            print("[LocalAnalyzer] 👤 No face detected")
             return LocalAnalysisResult(hasFace: false)
-        }
+        }.value
+
+        return result
     }
 }

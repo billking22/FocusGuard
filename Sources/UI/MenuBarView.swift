@@ -96,6 +96,10 @@ struct ControlButtons: View {
                     Button("Pause") {
                         engine.pause()
                     }
+                } else if engine.isPaused {
+                    Button("Resume") {
+                        engine.resume()
+                    }
                 } else {
                     Button("Start") {
                         engine.start()
@@ -106,7 +110,7 @@ struct ControlButtons: View {
                 Button("Stop") {
                     engine.stop()
                 }
-                .disabled(!engine.isRunning)
+                .disabled(!engine.isRunning && !engine.isPaused)
             }
 
             if !settings.isConfigured {

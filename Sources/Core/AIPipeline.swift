@@ -12,34 +12,25 @@ class AIPipeline {
 
     func analyze() async throws -> DetectionResult {
         let startTime = Date()
-        print("[AIPipeline] 📸 开始图像采集...")
 
         let authorized = await CameraManager.shared.checkAuthorization()
         guard authorized else {
-            print("[AIPipeline] ❌ 摄像头权限未授权")
             throw AIError.notAuthorized
         }
 
-        print("[AIPipeline] ⚙️ 当前AI超时设置: \(Int(settings.aiTimeout))秒")
-
         guard let image = try await CameraManager.shared.captureFrame() else {
-            print("[AIPipeline] ⚠️ 图像采集失败，判定为离开状态")
+            print("[AIPipeline] ⚠️ Frame capture failed, marking as away")
             return DetectionResult(state: .away, confidence: 1.0, source: .level0)
         }
-        print("[AIPipeline] ✅ 图像采集成功 (\(image.width)x\(image.height))")
 
         self.capturedImage = image
 
-        print("[AIPipeline] 🔬 执行 L0 本地分析（检测是否有人）...")
         let l0Result = await localAnalyzer.analyze(image: image)
-        print("[AIPipeline] 📊 L0 结果: \(l0Result.hasFace ? "检测到人脸" : "未检测到人脸")")
 
         if !l0Result.hasFace {
-            print("[AIPipeline] 👤 无人 detected，标记为离开状态")
             return DetectionResult(state: .away, confidence: 1.0, source: .level0)
         }
 
-        print("[AIPipeline] ↗️ 有人 detected，调用 AI 进行专注度分析...")
         return try await performL1Analysis(image: image, startTime: startTime)
     }
 
@@ -75,7 +66,7 @@ class AIPipeline {
 
             let requestStart = Date()
             do {
-                let result = try await withTimeout(seconds: 15) {
+                let result = try await withTimeout(seconds: settings.aiTimeout) {
                     try await client.analyze(image: image, prompt: nil)
                 }
                 let duration = Date().timeIntervalSince(requestStart)
@@ -107,9 +98,7 @@ class AIPipeline {
         let configs = buildProviderConfigs()
 
         for (index, config) in configs.enumerated() {
-            print("[AIPipeline] 🤖 [\(index + 1)/\(configs.count)] 尝试调用 \(config.name) (\(Int(timeoutSeconds))秒超时)...")
-            print("[AIPipeline]    🌐 请求 URL: \(config.baseURL)/chat/completions")
-            print("[AIPipeline]    📦 模型: \(config.model)")
+            print("[AIPipeline] 🤖 [\(index + 1)/\(configs.count)] Trying \(config.name) (timeout: \(Int(timeoutSeconds))s)")
 
             let requestStart = Date()
             let client = AIClientFactory.createClient(
@@ -124,22 +113,19 @@ class AIPipeline {
                     try await client.analyze(image: image, prompt: nil)
                 }
                 let duration = Date().timeIntervalSince(requestStart)
-                print("[AIPipeline]    ✅ \(config.name) 分析成功: 状态=\(l1Result.state.rawValue), 置信度=\(String(format: "%.2f", l1Result.confidence))")
-                print("[AIPipeline]    ⏱️ 响应时间: \(String(format: "%.2f", duration))s")
-                print("[AIPipeline]    📄 响应内容: state=\(l1Result.state.rawValue), confidence=\(l1Result.confidence), reason=\(l1Result.reason ?? "nil")")
+                print("[AIPipeline] ✅ \(config.name) success (\(String(format: "%.2fs", duration))): state=\(l1Result.state.rawValue), confidence=\(String(format: "%.2f", l1Result.confidence))")
                 return createResult(from: l1Result, source: .level1, startTime: startTime)
             } catch AIError.timeout {
                 let duration = Date().timeIntervalSince(requestStart)
-                print("[AIPipeline]    ⏰ \(config.name) 超时 (\(String(format: "%.2f", duration))s)")
+                print("[AIPipeline] ⏰ \(config.name) timed out (\(String(format: "%.2fs", duration)))")
                 continue
             } catch AIError.apiError(let status, let message) {
                 let duration = Date().timeIntervalSince(requestStart)
-                print("[AIPipeline]    ❌ \(config.name) API错误 (\(String(format: "%.2f", duration))s): HTTP \(status)")
-                print("[AIPipeline]       错误信息: \(message)")
+                print("[AIPipeline] ❌ \(config.name) failed (\(String(format: "%.2fs", duration))): HTTP \(status) - \(message)")
                 continue
             } catch {
                 let duration = Date().timeIntervalSince(requestStart)
-                print("[AIPipeline]    ❌ \(config.name) 失败 (\(String(format: "%.2f", duration))s): \(error.localizedDescription)")
+                print("[AIPipeline] ❌ \(config.name) failed (\(String(format: "%.2fs", duration))): \(error.localizedDescription)")
                 continue
             }
         }
@@ -151,33 +137,39 @@ class AIPipeline {
     private func buildProviderConfigs() -> [(name: String, baseURL: String, model: String, apiKey: String)] {
         var configs: [(name: String, baseURL: String, model: String, apiKey: String)] = []
 
-        if settings.aiProvider == "ollama" {
-            if !settings.ollamaBaseURL.isEmpty && !settings.ollamaModel.isEmpty {
-                configs.append((
-                    name: "Ollama",
-                    baseURL: settings.ollamaBaseURL,
-                    model: settings.ollamaModel,
-                    apiKey: settings.ollamaApiKey.isEmpty ? "ollama" : settings.ollamaApiKey
-                ))
-            }
-        } else if settings.aiProvider == "glm" {
-            if !settings.glmBaseURL.isEmpty && !settings.glmModel.isEmpty && !settings.glmApiKey.isEmpty {
-                configs.append((
-                    name: "GLM",
-                    baseURL: settings.glmBaseURL,
-                    model: settings.glmModel,
-                    apiKey: settings.glmApiKey
-                ))
-            }
-        } else if settings.aiProvider == "qwen" {
-            if !settings.qwenBaseURL.isEmpty && !settings.qwenModel.isEmpty && !settings.qwenApiKey.isEmpty {
-                configs.append((
-                    name: "Qwen",
-                    baseURL: settings.qwenBaseURL,
-                    model: settings.qwenModel,
-                    apiKey: settings.qwenApiKey
-                ))
-            }
+        // Ollama 优先：如果配置了 Ollama，始终排在第一位
+        if !settings.ollamaBaseURL.isEmpty && !settings.ollamaModel.isEmpty {
+            configs.append((
+                name: "Ollama",
+                baseURL: settings.ollamaBaseURL,
+                model: settings.ollamaModel,
+                apiKey: settings.ollamaApiKey.isEmpty ? "ollama" : settings.ollamaApiKey
+            ))
+        }
+
+        // 追加所有已配置的云端 provider 作为 fallback
+        if !settings.glmBaseURL.isEmpty && !settings.glmModel.isEmpty && !settings.glmApiKey.isEmpty {
+            configs.append((
+                name: "GLM",
+                baseURL: settings.glmBaseURL,
+                model: settings.glmModel,
+                apiKey: settings.glmApiKey
+            ))
+        }
+
+        if !settings.qwenBaseURL.isEmpty && !settings.qwenModel.isEmpty && !settings.qwenApiKey.isEmpty {
+            configs.append((
+                name: "Qwen",
+                baseURL: settings.qwenBaseURL,
+                model: settings.qwenModel,
+                apiKey: settings.qwenApiKey
+            ))
+        }
+
+        if configs.isEmpty {
+            print("[AIPipeline] ⚠️ 无可用 AI provider 配置")
+        } else {
+            print("[AIPipeline] 📋 Provider 优先级: \(configs.map { $0.name }.joined(separator: " → "))")
         }
 
         return configs

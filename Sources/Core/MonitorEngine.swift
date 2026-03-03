@@ -5,6 +5,7 @@ class MonitorEngine: ObservableObject {
     static let shared = MonitorEngine()
 
     @Published var isRunning = false
+    @Published var isPaused = false
     @Published var nextCheckAt: Date?
 
     private var timer: Timer?
@@ -26,6 +27,7 @@ class MonitorEngine: ObservableObject {
 
     func stop() {
         isRunning = false
+        isPaused = false
         timer?.invalidate()
         timer = nil
         nextCheckAt = nil
@@ -34,6 +36,7 @@ class MonitorEngine: ObservableObject {
 
     func pause() {
         isRunning = false
+        isPaused = true
         stateMachine.pause()
         timer?.invalidate()
         timer = nil
@@ -42,6 +45,8 @@ class MonitorEngine: ObservableObject {
     }
 
     func resume() {
+        isRunning = true
+        isPaused = false
         stateMachine.resume()
         print("[MonitorEngine] ▶️ 监测已恢复")
         scheduleNextCheck()
