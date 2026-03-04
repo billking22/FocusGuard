@@ -3,6 +3,11 @@ import Vision
 
 struct LocalAnalysisResult {
     let hasFace: Bool
+    let hasPerson: Bool
+
+    var hasPresence: Bool {
+        hasFace || hasPerson
+    }
 }
 
 @MainActor
@@ -13,25 +18,38 @@ class LocalAnalyzer {
         let result = await Task.detached { () -> LocalAnalysisResult in
             // 前置摄像头帧通常是水平镜像的，优先用 upMirrored，失败再 fallback 到 up
             let orientations: [CGImagePropertyOrientation] = [.upMirrored, .up]
+            var detectedFace = false
+            var detectedPerson = false
 
             for orientation in orientations {
-                let request = VNDetectFaceRectanglesRequest()
                 let handler = VNImageRequestHandler(cgImage: image, orientation: orientation, options: [:])
+                let faceRequest = VNDetectFaceRectanglesRequest()
+                let humanRequest = VNDetectHumanRectanglesRequest()
 
                 do {
-                    try handler.perform([request])
-                    let results = request.results ?? []
-                    if !results.isEmpty {
-                        print("[LocalAnalyzer] ✅ Detected \(results.count) face(s) (orientation: \(orientation.rawValue))")
-                        return LocalAnalysisResult(hasFace: true)
+                    try handler.perform([faceRequest, humanRequest])
+
+                    let faceResults = faceRequest.results ?? []
+                    let humanResults = humanRequest.results ?? []
+
+                    if !faceResults.isEmpty {
+                        detectedFace = true
+                    }
+                    if !humanResults.isEmpty {
+                        detectedPerson = true
+                    }
+
+                    if detectedFace || detectedPerson {
+                        print("[LocalAnalyzer] ✅ Presence detected: face=\(faceResults.count), human=\(humanResults.count), orientation=\(orientation.rawValue)")
+                        return LocalAnalysisResult(hasFace: detectedFace, hasPerson: detectedPerson)
                     }
                 } catch {
                     print("[LocalAnalyzer] ❌ Vision error: \(error.localizedDescription)")
                 }
             }
 
-            print("[LocalAnalyzer] 👤 No face detected")
-            return LocalAnalysisResult(hasFace: false)
+            print("[LocalAnalyzer] 👤 No face/human detected")
+            return LocalAnalysisResult(hasFace: false, hasPerson: false)
         }.value
 
         return result

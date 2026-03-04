@@ -27,9 +27,12 @@ class AIPipeline {
 
         let l0Result = await localAnalyzer.analyze(image: image)
 
-        if !l0Result.hasFace {
+        if !l0Result.hasPresence {
+            print("[AIPipeline] 👤 L0 未检测到人脸/人体，判定 away")
             return DetectionResult(state: .away, confidence: 1.0, source: .level0)
         }
+
+        print("[AIPipeline] ✅ L0 presence: hasFace=\(l0Result.hasFace), hasPerson=\(l0Result.hasPerson)")
 
         return try await performL1Analysis(image: image, startTime: startTime)
     }
@@ -186,7 +189,7 @@ class AIPipeline {
     }
 }
 
-func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws -> T) async throws -> T {
+func withTimeout<T: Sendable>(seconds: TimeInterval, operation: @escaping @Sendable () async throws -> T) async throws -> T {
     try await withThrowingTaskGroup(of: T.self) { group in
         group.addTask {
             try await operation()

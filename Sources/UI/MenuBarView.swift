@@ -155,7 +155,16 @@ struct StatisticsSection: View {
             HStack {
                 StatItem(label: "Focused", value: "\(store.todayStats.focusedCount)")
                 StatItem(label: "Distracted", value: "\(store.todayStats.distractedCount)")
+                StatItem(label: "Away", value: "\(store.todayStats.awayCount)")
             }
+
+            Text("Checks: \(store.todayStats.totalChecks)  Focus: \(Int(store.todayStats.focusRate * 100))%  Avg: \(store.todayStats.avgResponseTimeMs)ms")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+
+            Text("L0: \(store.todayStats.level0Count)  L1: \(store.todayStats.level1Count)  Conf: \(String(format: "%.0f", store.todayStats.avgConfidence * 100))%")
+                .font(.caption2)
+                .foregroundColor(.secondary)
         }
     }
 }

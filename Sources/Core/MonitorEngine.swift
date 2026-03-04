@@ -12,6 +12,7 @@ class MonitorEngine: ObservableObject {
     private let stateMachine = StateMachine.shared
     private let aiPipeline = AIPipeline()
     private let settings = Settings.shared
+    private let detectionStore = DetectionStore.shared
 
     private init() {}
 
@@ -22,6 +23,8 @@ class MonitorEngine: ObservableObject {
         }
         isRunning = true
         print("[MonitorEngine] ✅ 监测已启动")
+        detectionStore.cleanupOldData(olderThan: settings.dataRetentionDays)
+        detectionStore.updateTodayStats()
         scheduleNextCheck()
     }
 
@@ -95,11 +98,21 @@ class MonitorEngine: ObservableObject {
         }
 
         print("[MonitorEngine] 🔍 开始监测...")
+        let checkStart = Date()
 
         do {
             let result = try await aiPipeline.analyze()
+            let responseTimeMs = Int(Date().timeIntervalSince(checkStart) * 1000)
             let source = result.source == .level0 ? "L0(本地)" : "L1(AI)"
             print("[MonitorEngine] ✅ 监测完成: 状态=\(result.state.rawValue), 置信度=\(String(format: "%.2f", result.confidence)), 来源=\(source)")
+            detectionStore.insert(
+                DetectionRecord(
+                    state: result.state,
+                    confidence: result.confidence,
+                    source: result.source,
+                    responseTimeMs: responseTimeMs
+                )
+            )
             stateMachine.reportDetectionResult(result)
             scheduleNextCheck()
         } catch AIError.timeout {

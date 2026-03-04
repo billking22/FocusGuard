@@ -102,6 +102,22 @@ struct GeneralSettingsTab: View {
             Section("Behavior") {
                 Toggle("Auto-resume after unlock", isOn: $settings.autoResumeAfterUnlock)
             }
+
+            Section("Camera") {
+                Toggle("Prefer widest camera", isOn: $settings.preferWidestCamera)
+
+                HStack {
+                    Text("Zoom")
+                    Slider(value: $settings.cameraZoomFactor, in: 0.6...2.0, step: 0.1)
+                    Text(String(format: "%.1fx", settings.cameraZoomFactor))
+                        .monospacedDigit()
+                        .foregroundColor(.secondary)
+                }
+
+                Text("Note: Most Mac cameras cannot go below 1.0x optically. Values below 1.0x will fallback to the widest available camera.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
         .padding()
     }
@@ -351,6 +367,14 @@ class Settings: ObservableObject {
         didSet { UserDefaults.standard.set(autoResumeAfterUnlock, forKey: "autoResumeAfterUnlock") }
     }
 
+    @Published var preferWidestCamera: Bool {
+        didSet { UserDefaults.standard.set(preferWidestCamera, forKey: "preferWidestCamera") }
+    }
+
+    @Published var cameraZoomFactor: Double {
+        didSet { UserDefaults.standard.set(cameraZoomFactor, forKey: "cameraZoomFactor") }
+    }
+
     @Published var isConfigured: Bool = false
 
     private func updateConfiguredState() {
@@ -390,6 +414,8 @@ class Settings: ObservableObject {
         interventionMessage = defaults.string(forKey: "interventionMessage") ?? "请回到工作中"
         dataRetentionDays = defaults.object(forKey: "dataRetentionDays") as? Int ?? 30
         autoResumeAfterUnlock = defaults.object(forKey: "autoResumeAfterUnlock") as? Bool ?? true
+        preferWidestCamera = defaults.object(forKey: "preferWidestCamera") as? Bool ?? true
+        cameraZoomFactor = defaults.object(forKey: "cameraZoomFactor") as? Double ?? 1.0
 
         updateConfiguredState()
     }

@@ -85,7 +85,11 @@ class DetectionStore: ObservableObject {
             var focused = 0
             var distracted = 0
             var away = 0
-            
+            var level0 = 0
+            var level1 = 0
+            var confidenceSum = 0.0
+            var responseTimeSum = 0
+
             for row in try db.prepare(todayQuery) {
                 switch row[state] {
                 case "focused": focused += 1
@@ -93,13 +97,28 @@ class DetectionStore: ObservableObject {
                 case "away": away += 1
                 default: break
                 }
+
+                if row[aiSource] == "L0" {
+                    level0 += 1
+                } else if row[aiSource] == "L1" {
+                    level1 += 1
+                }
+
+                confidenceSum += row[confidence]
+                responseTimeSum += row[responseTimeMs]
             }
-            
+
+            let total = focused + distracted + away
+
             todayStats = DayStatistics(
                 focusedCount: focused,
                 distractedCount: distracted,
                 awayCount: away,
-                totalChecks: focused + distracted + away
+                totalChecks: total,
+                level0Count: level0,
+                level1Count: level1,
+                avgConfidence: total > 0 ? confidenceSum / Double(total) : 0,
+                avgResponseTimeMs: total > 0 ? Int(Double(responseTimeSum) / Double(total)) : 0
             )
             
         } catch {
@@ -151,12 +170,29 @@ struct DayStatistics {
     let distractedCount: Int
     let awayCount: Int
     let totalChecks: Int
+    let level0Count: Int
+    let level1Count: Int
+    let avgConfidence: Double
+    let avgResponseTimeMs: Int
     
-    init(focusedCount: Int = 0, distractedCount: Int = 0, awayCount: Int = 0, totalChecks: Int = 0) {
+    init(
+        focusedCount: Int = 0,
+        distractedCount: Int = 0,
+        awayCount: Int = 0,
+        totalChecks: Int = 0,
+        level0Count: Int = 0,
+        level1Count: Int = 0,
+        avgConfidence: Double = 0,
+        avgResponseTimeMs: Int = 0
+    ) {
         self.focusedCount = focusedCount
         self.distractedCount = distractedCount
         self.awayCount = awayCount
         self.totalChecks = totalChecks
+        self.level0Count = level0Count
+        self.level1Count = level1Count
+        self.avgConfidence = avgConfidence
+        self.avgResponseTimeMs = avgResponseTimeMs
     }
     
     var focusRate: Double {

@@ -3,11 +3,11 @@ import CoreGraphics
 import CoreImage
 import AppKit
 
-protocol AIClient {
+protocol AIClient: Sendable {
     func analyze(image: CGImage, prompt: String?) async throws -> AIAnalysisResponse
 }
 
-struct AIAnalysisResponse {
+struct AIAnalysisResponse: Sendable {
     let state: DetectionResult.AttentionState
     let confidence: Double
     let reason: String?
@@ -36,7 +36,7 @@ struct FlexibleDouble: Codable {
     }
 }
 
-class OpenAICompatibleClient: AIClient {
+final class OpenAICompatibleClient: AIClient, @unchecked Sendable {
     private let config: AIProviderConfig
     private let session: URLSession
     private let jsonDecoder: JSONDecoder
@@ -207,7 +207,7 @@ class OpenAICompatibleClient: AIClient {
 }
 
 // Ollama 原生 API 客户端（/api/chat 端点）
-class OllamaClient: AIClient {
+final class OllamaClient: AIClient, @unchecked Sendable {
     private let config: AIProviderConfig
     private let session: URLSession
     private let jsonDecoder: JSONDecoder
@@ -346,7 +346,7 @@ class OllamaClient: AIClient {
     }
 }
 
-struct AIProviderConfig {
+struct AIProviderConfig: Sendable {
     let name: String
     let baseURL: URL
     let model: String

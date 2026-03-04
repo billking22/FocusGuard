@@ -114,23 +114,23 @@ class StateMachine: ObservableObject {
     }
 }
 
-struct DetectionResult {
+struct DetectionResult: Sendable {
     let state: AttentionState
     let confidence: Double
     let source: AISource
     
-    enum AttentionState: String {
+    enum AttentionState: String, Sendable {
         case focused
         case distracted
         case away
     }
     
-    enum AISource {
+    enum AISource: Sendable {
         case level0
         case level1
     }
     
-    enum DistractionType: String {
+    enum DistractionType: String, Sendable {
         case phone
         case lookingAway
         case drowsy

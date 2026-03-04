@@ -8,8 +8,10 @@ class CameraManager: NSObject {
 
     private let captureSession = AVCaptureSession()
     private var videoOutput: AVCaptureVideoDataOutput?
+    private var videoInput: AVCaptureDeviceInput?
     private var completionHandler: ((CGImage?) -> Void)?
     private let processingQueue = DispatchQueue(label: "com.focusguard.camera", qos: .userInitiated)
+    private let settings = Settings.shared
     // 帧跳过计数器，在 processingQueue 上访问
     nonisolated(unsafe) private var framesToSkip: Int = 0
 
@@ -22,7 +24,7 @@ class CameraManager: NSObject {
         captureSession.beginConfiguration()
         captureSession.sessionPreset = .high
 
-        guard let camera = AVCaptureDevice.default(for: .video) else {
+        guard let camera = selectCameraDevice() else {
             print("[CameraManager] ❌ 未找到摄像头设备")
             captureSession.commitConfiguration()
             return
@@ -32,6 +34,8 @@ class CameraManager: NSObject {
             let input = try AVCaptureDeviceInput(device: camera)
             if captureSession.canAddInput(input) {
                 captureSession.addInput(input)
+                videoInput = input
+                configureZoom(for: camera)
                 print("[CameraManager] ✅ 摄像头输入已添加")
             } else {
                 print("[CameraManager] ❌ 无法添加摄像头输入")
@@ -68,11 +72,115 @@ class CameraManager: NSObject {
         print("[CameraManager] ✅ Camera session configured")
     }
 
+    private func selectCameraDevice() -> AVCaptureDevice? {
+        let session = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInWideAngleCamera, .externalUnknown],
+            mediaType: .video,
+            position: .unspecified
+        )
+        let devices = session.devices
+        guard !devices.isEmpty else {
+            return AVCaptureDevice.default(for: .video)
+        }
+
+        if !settings.preferWidestCamera {
+            return AVCaptureDevice.default(for: .video) ?? devices.first
+        }
+
+        let preferred = devices.max { lhs, rhs in
+            score(for: lhs) < score(for: rhs)
+        }
+
+        if let preferred {
+            print("[CameraManager] 🎥 使用优先设备: \(preferred.localizedName)")
+            return preferred
+        }
+
+        return AVCaptureDevice.default(for: .video) ?? devices.first
+    }
+
+    private func score(for device: AVCaptureDevice) -> Int {
+        let name = device.localizedName.lowercased()
+        var score = 0
+
+        if name.contains("ultra") || name.contains("超广") || name.contains("0.5") || name.contains("0.6") {
+            score += 100
+        }
+
+        if name.contains("iphone") {
+            score += 40
+        }
+
+        if device.deviceType == .externalUnknown {
+            score += 30
+        }
+
+        if device.deviceType == .builtInWideAngleCamera {
+            score += 10
+        }
+
+        return score
+    }
+
+    private func configureZoom(for camera: AVCaptureDevice) {
+#if os(macOS)
+        let requested = settings.cameraZoomFactor
+        if requested != 1.0 {
+            print("[CameraManager] ℹ️ macOS 上 AVCaptureDevice 不支持 videoZoomFactor，已忽略 \(String(format: "%.1f", requested))x，当前使用设备选择来实现更广视角")
+        }
+        _ = camera
+#else
+        let requested = CGFloat(settings.cameraZoomFactor)
+        let minZoom = max(1.0, camera.minAvailableVideoZoomFactor)
+        let maxZoom = camera.maxAvailableVideoZoomFactor
+        let clamped = min(max(requested, minZoom), maxZoom)
+
+        do {
+            try camera.lockForConfiguration()
+            camera.videoZoomFactor = clamped
+            camera.unlockForConfiguration()
+            if requested < 1.0 {
+                print("[CameraManager] ℹ️ 请求 \(String(format: "%.1f", requested))x，设备最小为 \(String(format: "%.1f", minZoom))x，已使用最小变焦并优先广角设备")
+            } else {
+                print("[CameraManager] 🔍 应用变焦: \(String(format: "%.1f", clamped))x")
+            }
+        } catch {
+            print("[CameraManager] ❌ 设置变焦失败: \(error.localizedDescription)")
+        }
+#endif
+    }
+
+    private func reconfigureSessionIfNeeded() {
+        guard let camera = selectCameraDevice() else { return }
+
+        if let currentInput = videoInput, currentInput.device.uniqueID != camera.uniqueID {
+            captureSession.beginConfiguration()
+            captureSession.removeInput(currentInput)
+
+            do {
+                let newInput = try AVCaptureDeviceInput(device: camera)
+                if captureSession.canAddInput(newInput) {
+                    captureSession.addInput(newInput)
+                    videoInput = newInput
+                    print("[CameraManager] 🔁 切换摄像头: \(camera.localizedName)")
+                }
+            } catch {
+                print("[CameraManager] ❌ 切换摄像头失败: \(error.localizedDescription)")
+            }
+
+            captureSession.commitConfiguration()
+        }
+
+        configureZoom(for: camera)
+    }
+
     func captureFrame() async throws -> CGImage? {
         guard videoOutput != nil else {
             print("[CameraManager] ❌ 视频输出未初始化")
             throw CameraError.setupFailed
         }
+
+        reconfigureSessionIfNeeded()
 
         print("[CameraManager] 📸 开始捕获帧...")
 
