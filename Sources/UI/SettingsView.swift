@@ -179,38 +179,39 @@ struct AISettingsTab: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
-                SettingsCard(title: "AI Provider") {
-                    Picker("Provider", selection: $settings.aiProvider) {
-                        Text("Ollama (Local)").tag("ollama")
-                        Text("GLM (Zhipu)").tag("glm")
-                        Text("Qwen (Alibaba)").tag("qwen")
-                    }
-                    .pickerStyle(.segmented)
+                SettingsCard(title: "Provider Order") {
+                    Text("1) Local Ollama")
+                        .foregroundColor(.white.opacity(0.92))
+                    Text("2) Custom Model API (fallback)")
+                        .foregroundColor(.white.opacity(0.92))
                 }
 
-                SettingsCard(title: "Configuration") {
-                    if settings.aiProvider == "ollama" {
-                        ConfigFields(
-                            baseURL: $settings.ollamaBaseURL,
-                            model: $settings.ollamaModel,
-                            apiKey: $settings.ollamaApiKey,
-                            showApiKey: false
-                        )
-                    } else if settings.aiProvider == "glm" {
-                        ConfigFields(
-                            baseURL: $settings.glmBaseURL,
-                            model: $settings.glmModel,
-                            apiKey: $settings.glmApiKey,
-                            showApiKey: true
-                        )
-                    } else if settings.aiProvider == "qwen" {
-                        ConfigFields(
-                            baseURL: $settings.qwenBaseURL,
-                            model: $settings.qwenModel,
-                            apiKey: $settings.qwenApiKey,
-                            showApiKey: true
-                        )
+                SettingsCard(title: "Ollama (Primary)") {
+                    ConfigFields(
+                        baseURL: $settings.ollamaBaseURL,
+                        model: $settings.ollamaModel,
+                        apiKey: $settings.ollamaApiKey,
+                        showApiKey: false
+                    )
+                }
+
+                SettingsCard(title: "Custom Model API (Fallback)") {
+                    LabeledInput(title: "Provider Name") {
+                        TextField("OpenRouter / GLM / Qwen / Others", text: $settings.customProviderName)
+                            .textFieldStyle(.roundedBorder)
                     }
+
+                    ConfigFields(
+                        baseURL: $settings.customBaseURL,
+                        model: $settings.customModel,
+                        apiKey: $settings.customApiKey,
+                        showApiKey: true
+                    )
+
+                    Text("Supports any OpenAI-compatible endpoint. API Key can be empty if your gateway does not require auth.")
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.62))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 SettingsCard(title: "Timeout & Image") {
@@ -281,6 +282,7 @@ struct ConfigFields: View {
 
 struct NotificationSettingsTab: View {
     @StateObject private var settings = Settings.shared
+    @StateObject private var logStore = AppLogStore.shared
 
     var body: some View {
         ScrollView {
@@ -305,6 +307,16 @@ struct NotificationSettingsTab: View {
                     }
                 }
 
+                SettingsCard(title: "Intervention Alerts") {
+                    Toggle("Show bubble notification", isOn: $settings.enableBubbleNotification)
+                        .toggleStyle(.switch)
+                        .foregroundColor(.white.opacity(0.9))
+
+                    Toggle("Show popup dialog", isOn: $settings.enableInterventionPopup)
+                        .toggleStyle(.switch)
+                        .foregroundColor(.white.opacity(0.9))
+                }
+
                 SettingsCard(title: "Data Retention") {
                     PickerField(title: "Keep History For") {
                         Picker("", selection: $settings.dataRetentionDays) {
@@ -314,10 +326,57 @@ struct NotificationSettingsTab: View {
                         }
                     }
                 }
+
+                SettingsCard(title: "API Error Logs") {
+                    HStack {
+                        Button("Refresh") {
+                            logStore.reload()
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button("Clear") {
+                            logStore.clear()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
+
+                        Spacer()
+                        Text("\(logStore.entries.count) entries")
+                            .foregroundColor(.white.opacity(0.7))
+                            .font(.caption)
+                    }
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(logStore.entries.suffix(80).reversed()) { entry in
+                                Text(entry.message)
+                                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                                    .foregroundColor(color(for: entry.level))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.vertical, 2)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(minHeight: 180, maxHeight: 220)
+                    .padding(8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.black.opacity(0.35))
+                    )
+                }
             }
             .frame(maxWidth: 560, alignment: .leading)
             .padding(.horizontal, 10)
             .padding(.vertical, 12)
+        }
+    }
+
+    private func color(for level: AppLogEntry.Level) -> Color {
+        switch level {
+        case .info: return .white.opacity(0.88)
+        case .warning: return Color.yellow.opacity(0.92)
+        case .error: return Color.red.opacity(0.95)
         }
     }
 }
@@ -435,13 +494,6 @@ class Settings: ObservableObject {
         didSet { UserDefaults.standard.set(deepFocusInterval, forKey: "deepFocusInterval") }
     }
 
-    @Published var aiProvider: String {
-        didSet {
-            UserDefaults.standard.set(aiProvider, forKey: "aiProvider")
-            updateConfiguredState()
-        }
-    }
-
     @Published var ollamaBaseURL: String {
         didSet { UserDefaults.standard.set(ollamaBaseURL, forKey: "ollamaBaseURL") }
     }
@@ -454,28 +506,29 @@ class Settings: ObservableObject {
         didSet { UserDefaults.standard.set(ollamaApiKey, forKey: "ollamaApiKey") }
     }
 
-    @Published var glmBaseURL: String {
-        didSet { UserDefaults.standard.set(glmBaseURL, forKey: "glmBaseURL") }
+    @Published var customProviderName: String {
+        didSet {
+            UserDefaults.standard.set(customProviderName, forKey: "customProviderName")
+            updateConfiguredState()
+        }
     }
 
-    @Published var glmModel: String {
-        didSet { UserDefaults.standard.set(glmModel, forKey: "glmModel") }
+    @Published var customBaseURL: String {
+        didSet {
+            UserDefaults.standard.set(customBaseURL, forKey: "customBaseURL")
+            updateConfiguredState()
+        }
     }
 
-    @Published var glmApiKey: String {
-        didSet { UserDefaults.standard.set(glmApiKey, forKey: "glmApiKey") }
+    @Published var customModel: String {
+        didSet {
+            UserDefaults.standard.set(customModel, forKey: "customModel")
+            updateConfiguredState()
+        }
     }
 
-    @Published var qwenBaseURL: String {
-        didSet { UserDefaults.standard.set(qwenBaseURL, forKey: "qwenBaseURL") }
-    }
-
-    @Published var qwenModel: String {
-        didSet { UserDefaults.standard.set(qwenModel, forKey: "qwenModel") }
-    }
-
-    @Published var qwenApiKey: String {
-        didSet { UserDefaults.standard.set(qwenApiKey, forKey: "qwenApiKey") }
+    @Published var customApiKey: String {
+        didSet { UserDefaults.standard.set(customApiKey, forKey: "customApiKey") }
     }
 
     @Published var aiTimeout: TimeInterval {
@@ -502,6 +555,14 @@ class Settings: ObservableObject {
         didSet { UserDefaults.standard.set(interventionMessage, forKey: "interventionMessage") }
     }
 
+    @Published var enableBubbleNotification: Bool {
+        didSet { UserDefaults.standard.set(enableBubbleNotification, forKey: "enableBubbleNotification") }
+    }
+
+    @Published var enableInterventionPopup: Bool {
+        didSet { UserDefaults.standard.set(enableInterventionPopup, forKey: "enableInterventionPopup") }
+    }
+
     @Published var dataRetentionDays: Int {
         didSet { UserDefaults.standard.set(dataRetentionDays, forKey: "dataRetentionDays") }
     }
@@ -522,9 +583,8 @@ class Settings: ObservableObject {
 
     private func updateConfiguredState() {
         let hasOllama = !ollamaBaseURL.isEmpty && !ollamaModel.isEmpty
-        let hasGLM = !glmBaseURL.isEmpty && !glmModel.isEmpty && !glmApiKey.isEmpty
-        let hasQwen = !qwenBaseURL.isEmpty && !qwenModel.isEmpty && !qwenApiKey.isEmpty
-        isConfigured = hasOllama || hasGLM || hasQwen
+        let hasCustom = !customBaseURL.isEmpty && !customModel.isEmpty
+        isConfigured = hasOllama || hasCustom
     }
 
     private init() {
@@ -534,19 +594,14 @@ class Settings: ObservableObject {
         alertInterval = defaults.object(forKey: "alertInterval") as? TimeInterval ?? 120
         deepFocusInterval = defaults.object(forKey: "deepFocusInterval") as? TimeInterval ?? 480
 
-        aiProvider = defaults.string(forKey: "aiProvider") ?? "ollama"
-
         ollamaBaseURL = defaults.string(forKey: "ollamaBaseURL") ?? "http://localhost:11434/v1"
         ollamaModel = defaults.string(forKey: "ollamaModel") ?? "llava"
         ollamaApiKey = defaults.string(forKey: "ollamaApiKey") ?? ""
 
-        glmBaseURL = defaults.string(forKey: "glmBaseURL") ?? "https://open.bigmodel.cn/api/paas/v4"
-        glmModel = defaults.string(forKey: "glmModel") ?? "glm-4v-flash"
-        glmApiKey = defaults.string(forKey: "glmApiKey") ?? ""
-
-        qwenBaseURL = defaults.string(forKey: "qwenBaseURL") ?? "https://dashscope.aliyuncs.com/compatible-mode/v1"
-        qwenModel = defaults.string(forKey: "qwenModel") ?? "qwen2.5-vl-3b-instruct"
-        qwenApiKey = defaults.string(forKey: "qwenApiKey") ?? ""
+        customProviderName = defaults.string(forKey: "customProviderName") ?? "Custom"
+        customBaseURL = defaults.string(forKey: "customBaseURL") ?? ""
+        customModel = defaults.string(forKey: "customModel") ?? ""
+        customApiKey = defaults.string(forKey: "customApiKey") ?? ""
 
         aiTimeout = defaults.object(forKey: "aiTimeout") as? TimeInterval ?? 10
         maxImageResolution = defaults.object(forKey: "maxImageResolution") as? Int ?? 640
@@ -555,11 +610,43 @@ class Settings: ObservableObject {
         voiceEnabled = defaults.object(forKey: "voiceEnabled") as? Bool ?? false
         voiceVolume = defaults.object(forKey: "voiceVolume") as? Double ?? 0.4
         interventionMessage = defaults.string(forKey: "interventionMessage") ?? "请回到工作中"
+        enableBubbleNotification = defaults.object(forKey: "enableBubbleNotification") as? Bool ?? true
+        enableInterventionPopup = defaults.object(forKey: "enableInterventionPopup") as? Bool ?? false
         dataRetentionDays = defaults.object(forKey: "dataRetentionDays") as? Int ?? 30
         autoResumeAfterUnlock = defaults.object(forKey: "autoResumeAfterUnlock") as? Bool ?? true
         preferWidestCamera = defaults.object(forKey: "preferWidestCamera") as? Bool ?? true
         cameraZoomFactor = defaults.object(forKey: "cameraZoomFactor") as? Double ?? 1.0
 
+        migrateLegacyProviderSettings(defaults: defaults)
+
         updateConfiguredState()
+    }
+
+    private func migrateLegacyProviderSettings(defaults: UserDefaults) {
+        // 从旧版 GLM/Qwen 配置自动迁移到 custom provider（仅在 custom 未填写时）
+        guard customBaseURL.isEmpty || customModel.isEmpty else { return }
+
+        let legacyGLMBase = defaults.string(forKey: "glmBaseURL") ?? ""
+        let legacyGLMModel = defaults.string(forKey: "glmModel") ?? ""
+        let legacyGLMKey = defaults.string(forKey: "glmApiKey") ?? ""
+
+        let legacyQwenBase = defaults.string(forKey: "qwenBaseURL") ?? ""
+        let legacyQwenModel = defaults.string(forKey: "qwenModel") ?? ""
+        let legacyQwenKey = defaults.string(forKey: "qwenApiKey") ?? ""
+
+        if !legacyGLMBase.isEmpty && !legacyGLMModel.isEmpty {
+            customProviderName = "GLM"
+            customBaseURL = legacyGLMBase
+            customModel = legacyGLMModel
+            customApiKey = legacyGLMKey
+            return
+        }
+
+        if !legacyQwenBase.isEmpty && !legacyQwenModel.isEmpty {
+            customProviderName = "Qwen"
+            customBaseURL = legacyQwenBase
+            customModel = legacyQwenModel
+            customApiKey = legacyQwenKey
+        }
     }
 }

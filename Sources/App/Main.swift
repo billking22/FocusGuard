@@ -17,6 +17,9 @@ struct FocusGuardApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        _ = SystemEventObserver.shared
+        _ = AlertNotifier.shared
+        _ = AppLogStore.shared
     }
     
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

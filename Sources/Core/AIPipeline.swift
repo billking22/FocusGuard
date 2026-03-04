@@ -7,6 +7,7 @@ class AIPipeline {
     private let localAnalyzer = LocalAnalyzer()
     private var capturedImage: CGImage?
     private let settings = Settings.shared
+    private let logger = AppLogStore.shared
 
     public init() {}
 
@@ -78,14 +79,17 @@ class AIPipeline {
             } catch AIError.timeout {
                 let duration = Date().timeIntervalSince(requestStart)
                 print("[AIPipeline]    ⏰ 超时 (\(String(format: "%.2f", duration))s)")
+                logger.log(level: .error, category: "API", message: "[\(config.name)] timeout in testConnection (\(String(format: "%.2f", duration))s)")
                 throw AIError.timeout
             } catch let error as AIError {
                 let duration = Date().timeIntervalSince(requestStart)
                 print("[AIPipeline]    ❌ 错误 (\(String(format: "%.2f", duration))s): \(error)")
+                logger.log(level: .error, category: "API", message: "[\(config.name)] testConnection failed: \(error)")
                 throw error
             } catch {
                 let duration = Date().timeIntervalSince(requestStart)
                 print("[AIPipeline]    ❌ 失败 (\(String(format: "%.2f", duration))s): \(error.localizedDescription)")
+                logger.log(level: .error, category: "API", message: "[\(config.name)] testConnection error: \(error.localizedDescription)")
                 throw error
             }
         }
@@ -121,19 +125,23 @@ class AIPipeline {
             } catch AIError.timeout {
                 let duration = Date().timeIntervalSince(requestStart)
                 print("[AIPipeline] ⏰ \(config.name) timed out (\(String(format: "%.2fs", duration)))")
+                logger.log(level: .error, category: "API", message: "[\(config.name)] timed out (\(String(format: "%.2fs", duration)))")
                 continue
             } catch AIError.apiError(let status, let message) {
                 let duration = Date().timeIntervalSince(requestStart)
                 print("[AIPipeline] ❌ \(config.name) failed (\(String(format: "%.2fs", duration))): HTTP \(status) - \(message)")
+                logger.log(level: .error, category: "API", message: "[\(config.name)] HTTP \(status): \(message)")
                 continue
             } catch {
                 let duration = Date().timeIntervalSince(requestStart)
                 print("[AIPipeline] ❌ \(config.name) failed (\(String(format: "%.2fs", duration))): \(error.localizedDescription)")
+                logger.log(level: .error, category: "API", message: "[\(config.name)] error: \(error.localizedDescription)")
                 continue
             }
         }
 
         print("[AIPipeline] ⚠️ 所有AI源均失败，降级到保守策略(假设专注)")
+        logger.log(level: .warning, category: "API", message: "All providers failed, fallback to conservative strategy")
         return DetectionResult(state: .focused, confidence: 0.5, source: .level0)
     }
 
@@ -150,22 +158,13 @@ class AIPipeline {
             ))
         }
 
-        // 追加所有已配置的云端 provider 作为 fallback
-        if !settings.glmBaseURL.isEmpty && !settings.glmModel.isEmpty && !settings.glmApiKey.isEmpty {
+        // 追加一个“自定义大模型”作为 fallback（任意 OpenAI-compatible 接口）
+        if !settings.customBaseURL.isEmpty && !settings.customModel.isEmpty {
             configs.append((
-                name: "GLM",
-                baseURL: settings.glmBaseURL,
-                model: settings.glmModel,
-                apiKey: settings.glmApiKey
-            ))
-        }
-
-        if !settings.qwenBaseURL.isEmpty && !settings.qwenModel.isEmpty && !settings.qwenApiKey.isEmpty {
-            configs.append((
-                name: "Qwen",
-                baseURL: settings.qwenBaseURL,
-                model: settings.qwenModel,
-                apiKey: settings.qwenApiKey
+                name: settings.customProviderName.isEmpty ? "Custom" : settings.customProviderName,
+                baseURL: settings.customBaseURL,
+                model: settings.customModel,
+                apiKey: settings.customApiKey
             ))
         }
 
