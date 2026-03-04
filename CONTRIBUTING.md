@@ -84,7 +84,7 @@ Closes #123
 
 ```bash
 # 克隆仓库
-git clone https://github.com/your-username/FocusGuard.git
+git clone https://github.com/billking22/FocusGuard.git
 cd FocusGuard
 
 # 安装依赖
