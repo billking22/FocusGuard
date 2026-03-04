@@ -119,4 +119,6 @@ open Package.swift
 
 ## 📝 License
 
-Copyright © 2026 FocusGuard. All rights reserved.
+本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件
+
+Copyright © 2026 FocusGuard
