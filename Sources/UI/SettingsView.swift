@@ -12,7 +12,7 @@ class SettingsWindowController {
             let hostingController = NSHostingController(rootView: settingsView)
 
             let newWindow = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 500, height: 500),
+                contentRect: NSRect(x: 0, y: 0, width: 620, height: 560),
                 styleMask: [.titled, .closable],
                 backing: .buffered,
                 defer: false
@@ -35,37 +35,65 @@ struct SettingsView: View {
     @StateObject private var settings = Settings.shared
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Spacer()
-                Button("Close") {
-                    closeWindow()
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.08, green: 0.10, blue: 0.14),
+                    Color(red: 0.12, green: 0.13, blue: 0.17)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("FocusGuard Settings")
+                            .font(.system(size: 18, weight: .bold, design: .rounded))
+                            .foregroundColor(Color(red: 0.96, green: 0.97, blue: 0.99))
+                        Text(settings.isConfigured ? "AI provider configured" : "AI provider is not configured")
+                            .font(.system(size: 12, weight: .regular, design: .rounded))
+                            .foregroundColor(settings.isConfigured ? .green : .orange)
+                    }
+                    Spacer()
+                    Button {
+                        closeWindow()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundColor(Color.white.opacity(0.85))
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.escape, modifiers: [])
                 }
-                .keyboardShortcut(.escape, modifiers: [])
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+                .background(Color.black.opacity(0.12))
+
+                TabView {
+                    GeneralSettingsTab()
+                        .tabItem {
+                            Label("General", systemImage: "slider.horizontal.3")
+                        }
+
+                    AISettingsTab()
+                        .tabItem {
+                            Label("AI", systemImage: "brain")
+                        }
+
+                    NotificationSettingsTab()
+                        .tabItem {
+                            Label("Notifications", systemImage: "bell")
+                        }
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
             }
-            .padding(.horizontal)
-            .padding(.top, 8)
-
-            TabView {
-                GeneralSettingsTab()
-                    .tabItem {
-                        Label("General", systemImage: "gear")
-                    }
-
-                AISettingsTab()
-                    .tabItem {
-                        Label("AI", systemImage: "brain")
-                    }
-
-                NotificationSettingsTab()
-                    .tabItem {
-                        Label("Notifications", systemImage: "bell")
-                    }
-            }
-            .padding(.horizontal)
-            .padding(.bottom)
         }
-        .frame(width: 500, height: 500)
+        .frame(width: 620, height: 560)
+        .preferredColorScheme(.dark)
     }
 
     private func closeWindow() {
@@ -77,49 +105,71 @@ struct GeneralSettingsTab: View {
     @StateObject private var settings = Settings.shared
 
     var body: some View {
-        Form {
-            Section("Monitoring Intervals") {
-                Picker("Base Interval (T0)", selection: $settings.baseInterval) {
-                    Text("3 minutes").tag(TimeInterval(180))
-                    Text("5 minutes").tag(TimeInterval(300))
-                    Text("8 minutes").tag(TimeInterval(480))
-                    Text("10 minutes").tag(TimeInterval(600))
+        ScrollView {
+            VStack(spacing: 14) {
+                SettingsCard(title: "Monitoring Intervals") {
+                    PickerField(title: "Base Interval (T0)") {
+                        Picker("", selection: $settings.baseInterval) {
+                            Text("3 minutes").tag(TimeInterval(180))
+                            Text("5 minutes").tag(TimeInterval(300))
+                            Text("8 minutes").tag(TimeInterval(480))
+                            Text("10 minutes").tag(TimeInterval(600))
+                        }
+                    }
+
+                    PickerField(title: "Alert Interval (T1)") {
+                        Picker("", selection: $settings.alertInterval) {
+                            Text("1 minute").tag(TimeInterval(60))
+                            Text("2 minutes").tag(TimeInterval(120))
+                            Text("3 minutes").tag(TimeInterval(180))
+                        }
+                    }
+
+                    PickerField(title: "Deep Focus Interval (T2)") {
+                        Picker("", selection: $settings.deepFocusInterval) {
+                            Text("6 minutes").tag(TimeInterval(360))
+                            Text("8 minutes").tag(TimeInterval(480))
+                            Text("10 minutes").tag(TimeInterval(600))
+                        }
+                    }
                 }
 
-                Picker("Alert Interval (T1)", selection: $settings.alertInterval) {
-                    Text("1 minute").tag(TimeInterval(60))
-                    Text("2 minutes").tag(TimeInterval(120))
-                    Text("3 minutes").tag(TimeInterval(180))
+                SettingsCard(title: "Behavior") {
+                    Toggle("Auto-resume after unlock", isOn: $settings.autoResumeAfterUnlock)
+                        .toggleStyle(.switch)
+                        .foregroundColor(.white.opacity(0.9))
                 }
 
-                Picker("Deep Focus Interval (T2)", selection: $settings.deepFocusInterval) {
-                    Text("6 minutes").tag(TimeInterval(360))
-                    Text("8 minutes").tag(TimeInterval(480))
-                    Text("10 minutes").tag(TimeInterval(600))
+                SettingsCard(title: "Camera") {
+                    Toggle("Prefer widest camera", isOn: $settings.preferWidestCamera)
+                        .toggleStyle(.switch)
+                        .foregroundColor(.white.opacity(0.9))
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Zoom")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.92))
+                            Spacer()
+                            Text(String(format: "%.1fx", settings.cameraZoomFactor))
+                                .font(.system(size: 12, weight: .medium, design: .rounded))
+                                .foregroundColor(.white.opacity(0.75))
+                                .monospacedDigit()
+                        }
+
+                        Slider(value: $settings.cameraZoomFactor, in: 0.6...2.0, step: 0.1)
+                    }
+
+                    Text("Most Mac cameras cannot go below 1.0x optically. Values below 1.0x will fallback to the widest available camera.")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundColor(.white.opacity(0.62))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-
-            Section("Behavior") {
-                Toggle("Auto-resume after unlock", isOn: $settings.autoResumeAfterUnlock)
-            }
-
-            Section("Camera") {
-                Toggle("Prefer widest camera", isOn: $settings.preferWidestCamera)
-
-                HStack {
-                    Text("Zoom")
-                    Slider(value: $settings.cameraZoomFactor, in: 0.6...2.0, step: 0.1)
-                    Text(String(format: "%.1fx", settings.cameraZoomFactor))
-                        .monospacedDigit()
-                        .foregroundColor(.secondary)
-                }
-
-                Text("Note: Most Mac cameras cannot go below 1.0x optically. Values below 1.0x will fallback to the widest available camera.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
+            .frame(maxWidth: 560, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 12)
         }
-        .padding()
     }
 }
 
@@ -127,68 +177,77 @@ struct AISettingsTab: View {
     @StateObject private var settings = Settings.shared
 
     var body: some View {
-        Form {
-            Section("AI Provider") {
-                Picker("Provider", selection: $settings.aiProvider) {
-                    Text("Ollama (Local)").tag("ollama")
-                    Text("GLM (Zhipu)").tag("glm")
-                    Text("Qwen (Alibaba)").tag("qwen")
-                }
-                .pickerStyle(.segmented)
-            }
-
-            Section("Configuration") {
-                if settings.aiProvider == "ollama" {
-                    ConfigFields(
-                        baseURL: $settings.ollamaBaseURL,
-                        model: $settings.ollamaModel,
-                        apiKey: $settings.ollamaApiKey,
-                        showApiKey: false
-                    )
-                } else if settings.aiProvider == "glm" {
-                    ConfigFields(
-                        baseURL: $settings.glmBaseURL,
-                        model: $settings.glmModel,
-                        apiKey: $settings.glmApiKey,
-                        showApiKey: true
-                    )
-                } else if settings.aiProvider == "qwen" {
-                    ConfigFields(
-                        baseURL: $settings.qwenBaseURL,
-                        model: $settings.qwenModel,
-                        apiKey: $settings.qwenApiKey,
-                        showApiKey: true
-                    )
-                }
-            }
-
-            Section("Timeout") {
-                Picker("AI Request Timeout", selection: $settings.aiTimeout) {
-                    Text("5 seconds").tag(TimeInterval(5))
-                    Text("10 seconds").tag(TimeInterval(10))
-                    Text("15 seconds").tag(TimeInterval(15))
-                    Text("30 seconds").tag(TimeInterval(30))
-                    Text("60 seconds").tag(TimeInterval(60))
-                }
-            }
-
-            Section("Test") {
-                TestAPIButton()
-            }
-
-            Section("Image Compression") {
-                Picker("Max Resolution", selection: $settings.maxImageResolution) {
-                    Text("480p").tag(480)
-                    Text("640p").tag(640)
-                    Text("720p").tag(720)
+        ScrollView {
+            VStack(spacing: 14) {
+                SettingsCard(title: "AI Provider") {
+                    Picker("Provider", selection: $settings.aiProvider) {
+                        Text("Ollama (Local)").tag("ollama")
+                        Text("GLM (Zhipu)").tag("glm")
+                        Text("Qwen (Alibaba)").tag("qwen")
+                    }
+                    .pickerStyle(.segmented)
                 }
 
-                Slider(value: $settings.imageCompressionQuality, in: 0.3...1.0, step: 0.1) {
-                    Text("Quality: \(Int(settings.imageCompressionQuality * 100))%")
+                SettingsCard(title: "Configuration") {
+                    if settings.aiProvider == "ollama" {
+                        ConfigFields(
+                            baseURL: $settings.ollamaBaseURL,
+                            model: $settings.ollamaModel,
+                            apiKey: $settings.ollamaApiKey,
+                            showApiKey: false
+                        )
+                    } else if settings.aiProvider == "glm" {
+                        ConfigFields(
+                            baseURL: $settings.glmBaseURL,
+                            model: $settings.glmModel,
+                            apiKey: $settings.glmApiKey,
+                            showApiKey: true
+                        )
+                    } else if settings.aiProvider == "qwen" {
+                        ConfigFields(
+                            baseURL: $settings.qwenBaseURL,
+                            model: $settings.qwenModel,
+                            apiKey: $settings.qwenApiKey,
+                            showApiKey: true
+                        )
+                    }
+                }
+
+                SettingsCard(title: "Timeout & Image") {
+                    PickerField(title: "AI Request Timeout") {
+                        Picker("", selection: $settings.aiTimeout) {
+                            Text("5 seconds").tag(TimeInterval(5))
+                            Text("10 seconds").tag(TimeInterval(10))
+                            Text("15 seconds").tag(TimeInterval(15))
+                            Text("30 seconds").tag(TimeInterval(30))
+                            Text("60 seconds").tag(TimeInterval(60))
+                        }
+                    }
+
+                    PickerField(title: "Max Resolution") {
+                        Picker("", selection: $settings.maxImageResolution) {
+                            Text("480p").tag(480)
+                            Text("640p").tag(640)
+                            Text("720p").tag(720)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Compression Quality \(Int(settings.imageCompressionQuality * 100))%")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.92))
+                        Slider(value: $settings.imageCompressionQuality, in: 0.3...1.0, step: 0.1)
+                    }
+                }
+
+                SettingsCard(title: "Connection Test") {
+                    TestAPIButton()
                 }
             }
+            .frame(maxWidth: 560, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 12)
         }
-        .padding()
     }
 }
 
@@ -200,15 +259,21 @@ struct ConfigFields: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            TextField("Base URL", text: $baseURL)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
+            LabeledInput(title: "Base URL") {
+                TextField("https://...", text: $baseURL)
+                    .textFieldStyle(.roundedBorder)
+            }
 
-            TextField("Model", text: $model)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
+            LabeledInput(title: "Model") {
+                TextField("model-id", text: $model)
+                    .textFieldStyle(.roundedBorder)
+            }
 
             if showApiKey {
-                SecureField("API Key", text: $apiKey)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                LabeledInput(title: "API Key") {
+                    SecureField("sk-...", text: $apiKey)
+                        .textFieldStyle(.roundedBorder)
+                }
             }
         }
     }
@@ -218,30 +283,108 @@ struct NotificationSettingsTab: View {
     @StateObject private var settings = Settings.shared
 
     var body: some View {
-        Form {
-            Section("Voice Notifications") {
-                Toggle("Enable Voice", isOn: $settings.voiceEnabled)
+        ScrollView {
+            VStack(spacing: 14) {
+                SettingsCard(title: "Voice Notifications") {
+                    Toggle("Enable Voice", isOn: $settings.voiceEnabled)
+                        .toggleStyle(.switch)
+                        .foregroundColor(.white.opacity(0.9))
 
-                if settings.voiceEnabled {
-                    Slider(value: $settings.voiceVolume, in: 0.1...1.0) {
-                        Text("Volume: \(Int(settings.voiceVolume * 100))%")
+                    if settings.voiceEnabled {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Volume \(Int(settings.voiceVolume * 100))%")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.92))
+                            Slider(value: $settings.voiceVolume, in: 0.1...1.0)
+                        }
+
+                        LabeledInput(title: "Intervention Message") {
+                            TextField("请回到工作中", text: $settings.interventionMessage)
+                                .textFieldStyle(.roundedBorder)
+                        }
                     }
+                }
 
-                    TextField("Intervention Message", text: $settings.interventionMessage)
+                SettingsCard(title: "Data Retention") {
+                    PickerField(title: "Keep History For") {
+                        Picker("", selection: $settings.dataRetentionDays) {
+                            Text("7 days").tag(7)
+                            Text("30 days").tag(30)
+                            Text("90 days").tag(90)
+                        }
+                    }
                 }
             }
-
-            Section("Data Retention") {
-                Picker("Keep History For", selection: $settings.dataRetentionDays) {
-                    Text("7 days").tag(7)
-                    Text("30 days").tag(30)
-                    Text("90 days").tag(90)
-                }
-            }
+            .frame(maxWidth: 560, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 12)
         }
-        .padding()
     }
 }
+
+private struct SettingsCard<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundColor(.white.opacity(0.95))
+
+            content
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.white.opacity(0.10), lineWidth: 1)
+        )
+    }
+}
+
+private struct PickerField<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.white.opacity(0.92))
+
+            content
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.white.opacity(0.14))
+                )
+        }
+    }
+}
+
+private struct LabeledInput<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.white.opacity(0.92))
+            content
+        }
+    }
+}
+
 
 struct TestAPIButton: View {
     @State private var isTesting = false
