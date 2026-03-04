@@ -132,6 +132,13 @@ private struct ActionSection: View {
                         .font(.system(size: 11, weight: .regular, design: .rounded))
                         .foregroundColor(FGTheme.warningText)
                 }
+
+                if engine.cameraPermissionDenied {
+                    Text("Camera permission is required. Please allow access in System Settings.")
+                        .font(.system(size: 11, weight: .regular, design: .rounded))
+                        .foregroundColor(.red.opacity(0.95))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }

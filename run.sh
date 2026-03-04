@@ -17,6 +17,16 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "✅ 编译成功!"
+APP_DIR=".build/FocusGuard.app"
+APP_CONTENTS="$APP_DIR/Contents"
+APP_MACOS="$APP_CONTENTS/MacOS"
+APP_RESOURCES="$APP_CONTENTS/Resources"
+
+echo "📦 正在打包为 .app（确保系统正确处理摄像头权限）..."
+mkdir -p "$APP_MACOS" "$APP_RESOURCES"
+cp ".build/arm64-apple-macosx/debug/FocusGuard" "$APP_MACOS/FocusGuard"
+cp "Resources/Info.plist" "$APP_CONTENTS/Info.plist"
+
 echo ""
 echo "📝 使用说明:"
 echo "1. 应用启动后会在菜单栏显示图标"
@@ -32,4 +42,4 @@ echo ""
 echo "🎯 启动应用..."
 echo ""
 
-.build/arm64-apple-macosx/debug/FocusGuard
+open "$APP_DIR"

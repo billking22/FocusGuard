@@ -2,6 +2,12 @@ import AVFoundation
 import CoreImage
 import AppKit
 
+enum CameraAuthorizationResult {
+    case authorized
+    case denied
+    case missingUsageDescription
+}
+
 @MainActor
 class CameraManager: NSObject {
     static let shared = CameraManager()
@@ -215,19 +221,44 @@ class CameraManager: NSObject {
     }
 
     func checkAuthorization() async -> Bool {
+        let result = await requestAuthorization()
+        return result == .authorized
+    }
+
+    func requestAuthorization() async -> CameraAuthorizationResult {
+        guard hasCameraUsageDescription() else {
+            print("[CameraManager] ❌ 缺少 NSCameraUsageDescription，系统不会弹权限框")
+            return .missingUsageDescription
+        }
+
         let status = AVCaptureDevice.authorizationStatus(for: .video)
         print("[CameraManager] 🔐 摄像头权限状态: \(status)")
 
         switch status {
         case .authorized:
-            return true
+            return .authorized
         case .notDetermined:
-            return await AVCaptureDevice.requestAccess(for: .video)
+            let granted = await AVCaptureDevice.requestAccess(for: .video)
+            return granted ? .authorized : .denied
         case .denied, .restricted:
-            return false
+            return .denied
         @unknown default:
+            return .denied
+        }
+    }
+
+    func openCameraPrivacySettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func hasCameraUsageDescription() -> Bool {
+        guard let usage = Bundle.main.object(forInfoDictionaryKey: "NSCameraUsageDescription") as? String else {
             return false
         }
+        return !usage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 

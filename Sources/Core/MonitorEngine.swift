@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 @MainActor
 class MonitorEngine: ObservableObject {
@@ -7,6 +8,7 @@ class MonitorEngine: ObservableObject {
     @Published var isRunning = false
     @Published var isPaused = false
     @Published var nextCheckAt: Date?
+    @Published var cameraPermissionDenied = false
 
     private var timer: Timer?
     private let stateMachine = StateMachine.shared
@@ -17,10 +19,40 @@ class MonitorEngine: ObservableObject {
     private init() {}
 
     func start() {
+        Task { @MainActor in
+            await startWithPermissionCheck()
+        }
+    }
+
+    private func startWithPermissionCheck() async {
         guard !isRunning else {
             print("[MonitorEngine] Start requested but already running")
             return
         }
+
+        let authorization = await CameraManager.shared.requestAuthorization()
+        guard authorization == .authorized else {
+            cameraPermissionDenied = true
+            switch authorization {
+            case .denied:
+                print("[MonitorEngine] ❌ 摄像头权限未授权，无法启动监测")
+                showCameraPermissionGuide(
+                    title: "需要摄像头权限",
+                    message: "请在 系统设置 > 隐私与安全性 > 相机 中允许 FocusGuard 使用摄像头。"
+                )
+            case .missingUsageDescription:
+                print("[MonitorEngine] ❌ 应用缺少 NSCameraUsageDescription，无法请求权限")
+                showCameraPermissionGuide(
+                    title: "权限配置缺失",
+                    message: "当前运行方式缺少摄像头权限描述。请使用应用包(.app)方式运行 FocusGuard。"
+                )
+            case .authorized:
+                break
+            }
+            return
+        }
+
+        cameraPermissionDenied = false
         isRunning = true
         print("[MonitorEngine] ✅ 监测已启动")
         detectionStore.cleanupOldData(olderThan: settings.dataRetentionDays)
@@ -28,9 +60,23 @@ class MonitorEngine: ObservableObject {
         scheduleNextCheck()
     }
 
+    private func showCameraPermissionGuide(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "打开相机设置")
+        alert.addButton(withTitle: "取消")
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            CameraManager.shared.openCameraPrivacySettings()
+        }
+    }
+
     func stop() {
         isRunning = false
         isPaused = false
+        cameraPermissionDenied = false
         timer?.invalidate()
         timer = nil
         nextCheckAt = nil
