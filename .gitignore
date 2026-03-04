@@ -45,3 +45,6 @@ focusguard.log
 # Misc
 .vscode/
 .idea/
+
+# app
+FocusGuard.app
